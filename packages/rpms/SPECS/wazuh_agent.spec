@@ -79,7 +79,7 @@ fi
 %post
 # Apply WAZUH_AGENT_GROUP env variable to the agent group configuration if set
 if [ -n "${WAZUH_AGENT_GROUP}" ]; then
-  AGENT_YML="%{_localstatedir}etc/wazuh-agent/wazuh-agent.yml"
+  AGENT_YML="/etc/wazuh-agent/wazuh-agent.yml"
   if [ -f "${AGENT_YML}" ]; then
     if grep -q "^agent:" "${AGENT_YML}"; then
       sed -i '/^  groups:/d' "${AGENT_YML}"

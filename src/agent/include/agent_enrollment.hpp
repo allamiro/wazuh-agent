@@ -7,7 +7,6 @@
 
 #include <optional>
 #include <string>
-#include <vector>
 
 namespace agent_enrollment
 {
@@ -45,7 +44,6 @@ namespace agent_enrollment
                         const std::string& name,
                         const std::string& dbFolderPath,
                         std::string verificationMode,
-                        std::vector<std::string> groups = {},
                         std::unique_ptr<IAgentInfo> agentInfo = nullptr);
 
         /// @brief Enrolls the agent with the manager.
@@ -79,8 +77,5 @@ namespace agent_enrollment
 
         /// @brief The connection verification mode.
         std::string m_verificationMode;
-
-        /// @brief Groups to assign to the agent during enrollment.
-        std::vector<std::string> m_groups;
     };
 } // namespace agent_enrollment

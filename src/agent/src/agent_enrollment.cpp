@@ -6,7 +6,6 @@
 #include <nlohmann/json.hpp>
 
 #include <iostream>
-#include <vector>
 
 namespace agent_enrollment
 {
@@ -18,7 +17,6 @@ namespace agent_enrollment
                                      const std::string& name,
                                      const std::string& dbFolderPath,
                                      std::string verificationMode,
-                                     std::vector<std::string> groups,
                                      std::unique_ptr<IAgentInfo> agentInfo)
         : m_httpClient(std::move(httpClient))
         , m_agentInfo(agentInfo ? std::move(agentInfo)
@@ -31,7 +29,6 @@ namespace agent_enrollment
         , m_user(std::move(user))
         , m_password(std::move(password))
         , m_verificationMode(std::move(verificationMode))
-        , m_groups(std::move(groups))
     {
         if (!m_httpClient)
         {
@@ -76,10 +73,6 @@ namespace agent_enrollment
             return false;
         }
 
-        if (!m_groups.empty())
-        {
-            m_agentInfo->SetGroups(m_groups);
-        }
         m_agentInfo->Save();
         return true;
     }
