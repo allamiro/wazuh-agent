@@ -77,7 +77,18 @@ elif /usr/share/wazuh-agent/bin/wazuh-agent --status 2>/dev/null | grep "is runn
 fi
 
 %post
-# If the package is being upgraded
+# Apply WAZUH_AGENT_GROUP env variable to the agent group configuration if set
+if [ -n "${WAZUH_AGENT_GROUP}" ]; then
+  AGENT_YML="%{_localstatedir}etc/wazuh-agent/wazuh-agent.yml"
+  if [ -f "${AGENT_YML}" ]; then
+    if grep -q "^agent:" "${AGENT_YML}"; then
+      sed -i '/^  groups:/d' "${AGENT_YML}"
+      sed -i "/^agent:/a\\  groups: [${WAZUH_AGENT_GROUP}]" "${AGENT_YML}"
+    else
+      printf '\nagent:\n  groups: [%s]\n' "${WAZUH_AGENT_GROUP}" >> "${AGENT_YML}"
+    fi
+  fi
+fi
 
 # If the package is being installed
 if [ $1 = 1 ]; then

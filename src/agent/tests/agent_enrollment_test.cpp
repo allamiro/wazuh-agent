@@ -48,6 +48,7 @@ TEST_F(EnrollmentTest, EnrollmentTestSuccess)
                                                                        "",
                                                                        ".",
                                                                        "full",
+                                                                       {},
                                                                        std::move(m_mockAgentInfo));
 
     const std::tuple<int, std::string> expectedResponse1 {http_client::HTTP_CODE_OK, R"({"data":{"token":"token"}})"};
@@ -80,6 +81,7 @@ TEST_F(EnrollmentTest, EnrollmentFailsIfAuthenticationFails)
                                                                        AGENT_NAME,
                                                                        ".",
                                                                        "certificate",
+                                                                       {},
                                                                        std::move(m_mockAgentInfo));
 
     EXPECT_CALL(*m_mockAgentInfoPtr, GetHeaderInfo()).WillOnce(testing::Return("header_info"));
@@ -105,6 +107,7 @@ TEST_F(EnrollmentTest, EnrollmentFailsIfServerResponseIsNotOk)
                                                                        AGENT_NAME,
                                                                        ".",
                                                                        "none",
+                                                                       {},
                                                                        std::move(m_mockAgentInfo));
 
     EXPECT_CALL(*m_mockAgentInfoPtr, GetHeaderInfo()).Times(2).WillRepeatedly(testing::Return("header_info"));
@@ -135,6 +138,7 @@ TEST_F(EnrollmentTest, EnrollmentWithoutAKeyGeneratesOneAutomatically)
                                                                        AGENT_NAME,
                                                                        ".",
                                                                        "full",
+                                                                       {},
                                                                        std::move(m_mockAgentInfo));
 
     EXPECT_CALL(*m_mockAgentInfoPtr, GetHeaderInfo()).Times(2).WillRepeatedly(testing::Return("header_info"));
@@ -166,6 +170,7 @@ TEST_F(EnrollmentTest, EnrollmentTestFailWithBadKey)
                                                    "agent_name",
                                                    ".",
                                                    "full",
+                                                   {},
                                                    std::move(m_mockAgentInfo)),
                  std::invalid_argument);
 }
@@ -180,6 +185,7 @@ TEST_F(EnrollmentTest, EnrollmentTestFailWithHttpClientError)
                                                    "agent_name",
                                                    ".",
                                                    "full",
+                                                   {},
                                                    std::move(m_mockAgentInfo)),
                  std::runtime_error);
 }
@@ -197,6 +203,7 @@ TEST_F(EnrollmentTest, AuthenticateWithUserPassword_Success)
                                                                        "",
                                                                        ".",
                                                                        "full",
+                                                                       {},
                                                                        std::move(m_mockAgentInfo));
 
     EXPECT_CALL(*m_mockAgentInfoPtr, GetHeaderInfo()).WillOnce(testing::Return("header_info"));
@@ -227,6 +234,7 @@ TEST_F(EnrollmentTest, AuthenticateWithUserPassword_Failure)
                                                                        "",
                                                                        ".",
                                                                        "full",
+                                                                       {},
                                                                        std::move(m_mockAgentInfo));
 
     EXPECT_CALL(*m_mockAgentInfoPtr, GetHeaderInfo()).WillOnce(testing::Return("header_info"));
@@ -238,6 +246,42 @@ TEST_F(EnrollmentTest, AuthenticateWithUserPassword_Failure)
     const auto token = m_enrollment->AuthenticateWithUserPassword();
 
     EXPECT_FALSE(token.has_value());
+}
+
+TEST_F(EnrollmentTest, EnrollmentWithGroupsSetsGroupsBeforeSave)
+{
+    EXPECT_CALL(*m_mockAgentInfoPtr, SetKey("")).WillOnce(testing::Return(true));
+    EXPECT_CALL(*m_mockAgentInfoPtr, SetName("")).WillOnce(testing::Return(true));
+
+    const std::vector<std::string> expectedGroups = {"group1", "group2"};
+
+    m_enrollment = std::make_unique<agent_enrollment::AgentEnrollment>(std::move(m_mockHttpClient),
+                                                                       "https://localhost:55000",
+                                                                       "user",
+                                                                       "password",
+                                                                       "",
+                                                                       "",
+                                                                       ".",
+                                                                       "full",
+                                                                       expectedGroups,
+                                                                       std::move(m_mockAgentInfo));
+
+    const std::tuple<int, std::string> expectedResponse1 {http_client::HTTP_CODE_OK, R"({"data":{"token":"token"}})"};
+    const std::tuple<int, std::string> expectedResponse2 {http_client::HTTP_CODE_CREATED, ""};
+
+    EXPECT_CALL(*m_mockAgentInfoPtr, GetHeaderInfo()).Times(2).WillRepeatedly(testing::Return("header_info"));
+    EXPECT_CALL(*m_mockAgentInfoPtr, GetMetadataInfo()).WillOnce(testing::Return("metadata_info"));
+
+    EXPECT_CALL(*m_mockHttpClientPtr, PerformHttpRequest(testing::_))
+        .Times(2)
+        .WillOnce(testing::Return(expectedResponse1))
+        .WillOnce(testing::Return(expectedResponse2));
+
+    EXPECT_CALL(*m_mockAgentInfoPtr, SetGroups(expectedGroups)).Times(1);
+    EXPECT_CALL(*m_mockAgentInfoPtr, Save()).Times(1);
+
+    const bool res = m_enrollment->Enroll();
+    ASSERT_TRUE(res);
 }
 
 int main(int argc, char** argv)

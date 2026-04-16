@@ -29,6 +29,23 @@ case "$1" in
         adduser --system --shell ${OSMYSHELL} --ingroup ${GROUP} ${USER} > /dev/null 2>&1
     fi
 
+    # Apply WAZUH_AGENT_GROUP env variable to the agent group configuration if set
+    if [ -n "${WAZUH_AGENT_GROUP}" ]; then
+        AGENT_BINARY="/usr/share/wazuh-agent/bin/wazuh-agent"
+        AGENT_YML="/etc/wazuh-agent/wazuh-agent.yml"
+        if [ -f "${AGENT_YML}" ]; then
+            # Remove any existing 'groups:' key under 'agent:' and re-add it
+            if grep -q "^agent:" "${AGENT_YML}"; then
+                # Remove existing groups line if present
+                sed -i '/^  groups:/d' "${AGENT_YML}"
+                # Inject the groups line after the 'agent:' key
+                sed -i "/^agent:/a\\  groups: [${WAZUH_AGENT_GROUP}]" "${AGENT_YML}"
+            else
+                printf '\nagent:\n  groups: [%s]\n' "${WAZUH_AGENT_GROUP}" >> "${AGENT_YML}"
+            fi
+        fi
+    fi
+
     if [ -f ${UPGRADE_RESTART_FLAG} ] ; then
         if command -v systemctl > /dev/null 2>&1 && systemctl > /dev/null 2>&1; then
             systemctl daemon-reload > /dev/null 2>&1

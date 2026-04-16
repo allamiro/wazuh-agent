@@ -14,7 +14,9 @@
 #include <fmt/format.h>
 
 #include <iostream>
+#include <sstream>
 #include <string>
+#include <vector>
 
 namespace program_options = boost::program_options;
 
@@ -48,6 +50,8 @@ namespace
     const auto OPT_VERIFICATION_MODE {"verification-mode"};
     const auto OPT_VERIFICATION_MODE_DESC {
         "Verification mode to be applied on HTTPS connection to the server (optional)"};
+    const auto OPT_GROUP {"group"};
+    const auto OPT_GROUP_DESC {"Comma-separated list of groups to assign to the agent during enrollment (optional)"};
     const auto OPT_RELOAD_CONFIG {"reload-config"};
     const auto OPT_RELOAD_CONFIG_DESC {"Reload configuration file and all modules"};
     const auto OPT_RELOAD_MODULE {"reload-module"};
@@ -79,6 +83,7 @@ void AgentRunner::ParseOptions(int argc, char* argv[])
         (OPT_CONNECT_URL, program_options::value<std::string>(), OPT_CONNECT_URL_DESC)
         (OPT_KEY, program_options::value<std::string>()->default_value(""), OPT_KEY_DESC)
         (OPT_NAME, program_options::value<std::string>()->default_value(""), OPT_NAME_DESC)
+        (OPT_GROUP, program_options::value<std::string>()->default_value(""), OPT_GROUP_DESC)
         (OPT_VERIFICATION_MODE, program_options::value<std::string>()->default_value(config::agent::DEFAULT_VERIFICATION_MODE), OPT_VERIFICATION_MODE_DESC);
     // clang-format on
 
@@ -150,6 +155,21 @@ int AgentRunner::EnrollAgent() const
         configurationParser.SetServerURL(m_options[OPT_CONNECT_URL].as<std::string>());
     }
 
+    const auto groupStr = m_options[OPT_GROUP].as<std::string>();
+    std::vector<std::string> groups;
+    if (!groupStr.empty())
+    {
+        std::istringstream stream(groupStr);
+        std::string token;
+        while (std::getline(stream, token, ','))
+        {
+            if (!token.empty())
+            {
+                groups.push_back(token);
+            }
+        }
+    }
+
     try
     {
         std::cout << "Starting wazuh-agent enrollment\n";
@@ -161,7 +181,8 @@ int AgentRunner::EnrollAgent() const
                                               m_options[OPT_KEY].as<std::string>(),
                                               m_options[OPT_NAME].as<std::string>(),
                                               dbFolderPath,
-                                              m_options[OPT_VERIFICATION_MODE].as<std::string>());
+                                              m_options[OPT_VERIFICATION_MODE].as<std::string>(),
+                                              groups);
 
         if (reg.Enroll())
         {
