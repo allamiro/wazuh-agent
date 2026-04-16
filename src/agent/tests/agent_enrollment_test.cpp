@@ -9,6 +9,7 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace
 {
@@ -48,7 +49,7 @@ TEST_F(EnrollmentTest, EnrollmentTestSuccess)
                                                                        "",
                                                                        ".",
                                                                        "full",
-                                                                       {},
+                                                                       std::vector<std::string>{},
                                                                        std::move(m_mockAgentInfo));
 
     const std::tuple<int, std::string> expectedResponse1 {http_client::HTTP_CODE_OK, R"({"data":{"token":"token"}})"};
@@ -81,7 +82,7 @@ TEST_F(EnrollmentTest, EnrollmentFailsIfAuthenticationFails)
                                                                        AGENT_NAME,
                                                                        ".",
                                                                        "certificate",
-                                                                       {},
+                                                                       std::vector<std::string>{},
                                                                        std::move(m_mockAgentInfo));
 
     EXPECT_CALL(*m_mockAgentInfoPtr, GetHeaderInfo()).WillOnce(testing::Return("header_info"));
@@ -107,7 +108,7 @@ TEST_F(EnrollmentTest, EnrollmentFailsIfServerResponseIsNotOk)
                                                                        AGENT_NAME,
                                                                        ".",
                                                                        "none",
-                                                                       {},
+                                                                       std::vector<std::string>{},
                                                                        std::move(m_mockAgentInfo));
 
     EXPECT_CALL(*m_mockAgentInfoPtr, GetHeaderInfo()).Times(2).WillRepeatedly(testing::Return("header_info"));
@@ -138,7 +139,7 @@ TEST_F(EnrollmentTest, EnrollmentWithoutAKeyGeneratesOneAutomatically)
                                                                        AGENT_NAME,
                                                                        ".",
                                                                        "full",
-                                                                       {},
+                                                                       std::vector<std::string>{},
                                                                        std::move(m_mockAgentInfo));
 
     EXPECT_CALL(*m_mockAgentInfoPtr, GetHeaderInfo()).Times(2).WillRepeatedly(testing::Return("header_info"));
@@ -203,7 +204,7 @@ TEST_F(EnrollmentTest, AuthenticateWithUserPassword_Success)
                                                                        "",
                                                                        ".",
                                                                        "full",
-                                                                       {},
+                                                                       std::vector<std::string>{},
                                                                        std::move(m_mockAgentInfo));
 
     EXPECT_CALL(*m_mockAgentInfoPtr, GetHeaderInfo()).WillOnce(testing::Return("header_info"));
@@ -234,7 +235,7 @@ TEST_F(EnrollmentTest, AuthenticateWithUserPassword_Failure)
                                                                        "",
                                                                        ".",
                                                                        "full",
-                                                                       {},
+                                                                       std::vector<std::string>{},
                                                                        std::move(m_mockAgentInfo));
 
     EXPECT_CALL(*m_mockAgentInfoPtr, GetHeaderInfo()).WillOnce(testing::Return("header_info"));
