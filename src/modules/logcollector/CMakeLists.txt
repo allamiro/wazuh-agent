@@ -20,18 +20,20 @@ file(GLOB LOGCOLLECTOR_SOURCES src/*.cpp src/file_reader/src/*.cpp src/syslog_re
 file(GLOB JOURNALD_SOURCES src/journald_reader/src/*.cpp)
 file(GLOB MACOS_SOURCES src/macos_reader/src/*.cpp)
 file(GLOB WIN_SOURCES src/winevt_reader/src/*.cpp)
-# UNIX domain socket reader is POSIX-only (scaffold, wazuh/wazuh#15178 follow-up)
+# UNIX domain socket reader is POSIX-only (wazuh/wazuh#15178)
 file(GLOB UNIXSOCK_SOURCES src/unix_socket_reader/src/*.cpp)
+# Named pipe (FIFO) reader is POSIX-only (scaffold, wazuh/wazuh#15178 follow-up)
+file(GLOB PIPE_SOURCES src/pipe_reader/src/*.cpp)
 
 if(WIN32)
     file(GLOB_RECURSE EXCLUDED_SOURCES *_unix.cpp *_osx.cpp)
     list(APPEND LOGCOLLECTOR_SOURCES ${WIN_SOURCES})
 elseif(APPLE)
     file(GLOB_RECURSE EXCLUDED_SOURCES *_win.cpp src/logcollector_unix.cpp)
-    list(APPEND LOGCOLLECTOR_SOURCES ${MACOS_SOURCES} ${UNIXSOCK_SOURCES})
+    list(APPEND LOGCOLLECTOR_SOURCES ${MACOS_SOURCES} ${UNIXSOCK_SOURCES} ${PIPE_SOURCES})
 else()
     file(GLOB_RECURSE EXCLUDED_SOURCES *_win.cpp *_osx.cpp)
-    list(APPEND LOGCOLLECTOR_SOURCES ${JOURNALD_SOURCES} ${UNIXSOCK_SOURCES})
+    list(APPEND LOGCOLLECTOR_SOURCES ${JOURNALD_SOURCES} ${UNIXSOCK_SOURCES} ${PIPE_SOURCES})
 
     find_package(PkgConfig REQUIRED)
     pkg_check_modules(SYSTEMD REQUIRED libsystemd)
@@ -48,6 +50,7 @@ target_include_directories(
             ${CMAKE_CURRENT_SOURCE_DIR}/src/file_reader/include
             ${CMAKE_CURRENT_SOURCE_DIR}/src/syslog_reader/include
             $<$<NOT:$<PLATFORM_ID:Windows>>:${CMAKE_CURRENT_SOURCE_DIR}/src/unix_socket_reader/include>
+            $<$<NOT:$<PLATFORM_ID:Windows>>:${CMAKE_CURRENT_SOURCE_DIR}/src/pipe_reader/include>
             $<$<PLATFORM_ID:Linux>:${CMAKE_CURRENT_SOURCE_DIR}/src/journald_reader/include>
             $<$<PLATFORM_ID:Linux>:${SYSTEMD_INCLUDE_DIRS}>
             $<$<PLATFORM_ID:Windows>:${CMAKE_CURRENT_SOURCE_DIR}/src/winevt_reader/include>
