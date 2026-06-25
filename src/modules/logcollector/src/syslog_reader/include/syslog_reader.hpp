@@ -57,6 +57,12 @@ namespace logcollector
     ///
     /// A single reader handles one listener definition (one protocol, bind address
     /// and port). Multiple listeners are represented by multiple reader instances.
+    ///
+    /// @note Thread-safety: this reader assumes it runs on a single-threaded
+    /// io_context (Logcollector uses TaskManager::RunSingleThread). The sockets are
+    /// not wrapped in a strand, so Stop() closes them by posting to the same
+    /// executor rather than touching them directly. If the io_context is ever run
+    /// with multiple threads, the socket accesses would need a strand to stay safe.
     class SyslogReader : public IReader
     {
     public:
