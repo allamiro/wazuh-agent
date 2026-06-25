@@ -142,15 +142,61 @@ port combination.
 > appropriate. Source IP filtering for the agent-side listener should be handled
 > with host firewall rules.
 
+### Agent-side UNIX domain socket listener
+
+On POSIX platforms the agent can also receive messages over a local **UNIX domain
+socket** instead of a network port. This avoids disk I/O for high-EPS local sources
+and keeps the socket private to the host: a local service such as rsyslog
+(`omuxsock`) or syslog-ng writes to the socket and the agent ingests each message
+into the normal Logcollector path, keeping it associated with the receiving agent.
+
+Two socket types are supported:
+
+- `unix_stream` — `SOCK_STREAM`, newline-delimited messages (multiple clients).
+- `unix_dgram` — `SOCK_DGRAM`, one datagram per message.
+
+No listener is started unless explicitly configured. The agent creates the socket
+file at the configured `path`, removes a stale socket file left by a previous run
+before binding, and removes the socket file again on shutdown.
+
+```yaml
+logcollector:
+  enabled: true
+  unix_socket:
+    - type: unix_dgram
+      path: /var/run/wazuh-syslog.sock
+    - type: unix_stream
+      path: /var/run/wazuh-stream.sock
+```
+
+Messages are forwarded with the `remote-unix` collector type and the listener
+identity (`<type>:<path>`) as the event provider:
+
+```json
+{"module":"logcollector","collector":"remote-unix"}
+{"event":{"created":"2025-01-17T17:58:26.212Z","original":"<13>example message","provider":"unix_dgram:/var/run/wazuh-syslog.sock"}}
+```
+
+| Mandatory | Option           | Description                                            | Default |
+| :-------: | ---------------- | ----------------------------------------------------- | ------- |
+|     ✔️     | unix_socket      | Vector of agent-side UNIX domain socket listeners     |         |
+|     ✔️     | unix_socket.type | Socket type: `unix_stream` or `unix_dgram`            |         |
+|     ✔️     | unix_socket.path | Filesystem path of the socket (max 107 characters)    |         |
+
+A definition is rejected (and not started) when the type is not
+`unix_stream`/`unix_dgram`, the path is missing or longer than 107 characters
+(`sun_path` limit), or another listener already uses the same path. This feature is
+POSIX-only and is not available on Windows agents.
+
 #### Limitations and future work
 
-This first version implements only the UDP/TCP IP-socket listeners from
+This work implements the UDP/TCP IP-socket and UNIX domain socket listeners from
 [wazuh/wazuh#15178](https://github.com/wazuh/wazuh/issues/15178). The following are
 intentionally **not** included yet and are tracked as future work:
 
 | Not yet supported | Notes |
 | ----------------- | ----- |
-| UNIX domain sockets (`unix_stream`, `unix_dgram`, `unix_seq`) | Local socket ingress requested in #15178; reuses the Boost.Asio local-socket pattern. |
+| UNIX `SOCK_SEQPACKET` (`unix_seq`) | Only `unix_stream` and `unix_dgram` are implemented. |
 | Named pipe / FIFO (and Windows named pipes) | Pipe ingress requested in #15178; equivalent to the legacy `syslog-pipe` format. |
 | TLS Syslog (TCP) | The TCP listener is plaintext; use rsyslog/syslog-ng for TLS. |
 | TCP octet-counting framing (RFC 6587) | Only newline-delimited ("non-transparent") framing is parsed. Octet-counted messages (`<len> <msg>`) are not auto-detected. |

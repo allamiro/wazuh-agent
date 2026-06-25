@@ -20,6 +20,10 @@
 #include "file_reader.hpp"
 #include "syslog_reader.hpp"
 
+#if defined(BOOST_ASIO_HAS_LOCAL_SOCKETS)
+#include "unix_socket_reader.hpp"
+#endif
+
 using namespace logcollector;
 
 namespace logcollector
@@ -73,6 +77,7 @@ void Logcollector::Setup(std::shared_ptr<const configuration::ConfigurationParse
 
     SetupFileReader(configurationParser);
     SetupSyslogReaders(configurationParser);
+    SetupUnixSocketReaders(configurationParser);
     AddPlatformSpecificReader(configurationParser);
 }
 
@@ -170,6 +175,80 @@ void Logcollector::SetupSyslogReaders(
             bindAddress,
             static_cast<std::uint16_t>(port)));
     }
+}
+
+void Logcollector::SetupUnixSocketReaders(
+    const std::shared_ptr<const configuration::ConfigurationParser> configurationParser)
+{
+#if defined(BOOST_ASIO_HAS_LOCAL_SOCKETS)
+    const auto unixConfigs = configurationParser->GetConfigOrDefault<YAML::Node>(
+        YAML::Node(YAML::NodeType::Sequence), "logcollector", "unix_socket");
+
+    std::set<std::string> seenPaths;
+
+    for (const auto& config : unixConfigs)
+    {
+        if (!config.IsMap())
+        {
+            LogWarn("Invalid agent-side unix socket listener configuration: entry is not a mapping.");
+            continue;
+        }
+
+        auto typeStr = config["type"].as<std::string>("");
+        std::transform(typeStr.begin(),
+                       typeStr.end(),
+                       typeStr.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+        UnixSocketType type = UnixSocketType::Stream;
+        if (typeStr == "unix_stream")
+        {
+            type = UnixSocketType::Stream;
+        }
+        else if (typeStr == "unix_dgram")
+        {
+            type = UnixSocketType::Datagram;
+        }
+        else
+        {
+            LogError("Invalid agent-side unix socket listener configuration: unsupported type {}.",
+                     typeStr.empty() ? "(missing)" : typeStr);
+            continue;
+        }
+
+        const auto path = config["path"].as<std::string>("");
+        if (path.empty())
+        {
+            LogError("Invalid agent-side unix socket listener configuration: missing path.");
+            continue;
+        }
+
+        if (path.size() > UnixSocketReader::MAX_PATH_LENGTH)
+        {
+            LogError("Invalid agent-side unix socket listener configuration: path too long (max {} characters): {}.",
+                     UnixSocketReader::MAX_PATH_LENGTH,
+                     path);
+            continue;
+        }
+
+        if (!seenPaths.insert(path).second)
+        {
+            LogError("Invalid agent-side unix socket listener configuration: duplicate path {}.", path);
+            continue;
+        }
+
+        AddReader(std::make_shared<UnixSocketReader>(
+            [this](const std::string& location, const std::string& log, const std::string& collectorType)
+            { PushMessage(location, log, collectorType); },
+            // NOLINTNEXTLINE(cppcoreguidelines-avoid-capturing-lambda-coroutines)
+            [this](std::chrono::milliseconds duration) -> Awaitable { co_await Wait(duration); },
+            [this](Awaitable task) { EnqueueTask(std::move(task)); },
+            type,
+            path));
+    }
+#else
+    (void)configurationParser;
+#endif
 }
 
 void Logcollector::SetupFileReader(const std::shared_ptr<const configuration::ConfigurationParser> configurationParser)

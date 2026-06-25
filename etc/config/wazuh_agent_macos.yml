@@ -33,3 +33,9 @@ logcollector:
   #   - protocol: tcp
   #     bind_address: 127.0.0.1
   #     port: 1514
+  # Agent-side UNIX domain socket listeners (POSIX only). Disabled by default.
+  # unix_socket:
+  #   - type: unix_dgram
+  #     path: /var/run/wazuh-syslog.sock
+  #   - type: unix_stream
+  #     path: /var/run/wazuh-stream.sock
