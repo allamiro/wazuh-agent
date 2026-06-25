@@ -32,12 +32,14 @@ SyslogReader::SyslogReader(
     std::function<void(boost::asio::awaitable<void>)> enqueueTaskFunc,
     SyslogProtocol protocol,
     std::string bindAddress,
-    std::uint16_t port)
+    std::uint16_t port,
+    std::size_t maxConnections)
     : IReader(std::move(pushMessageFunc), std::move(waitFunc))
     , m_enqueueTask(std::move(enqueueTaskFunc))
     , m_protocol(protocol)
     , m_bindAddress(std::move(bindAddress))
     , m_port(port)
+    , m_maxConnections(maxConnections)
 {
 }
 
@@ -262,6 +264,18 @@ Awaitable SyslogReader::RunTcp()
             continue;
         }
 
+        // Bound concurrent connections to avoid memory/file-descriptor exhaustion (DoS).
+        if (m_activeConnections.load() >= m_maxConnections)
+        {
+            LogDebug("Rejected syslog TCP connection on {}: connection limit {} reached",
+                     ListenerId(),
+                     m_maxConnections);
+            boost::system::error_code limitCloseEc;
+            // NOLINTNEXTLINE(bugprone-unused-return-value)
+            socket->close(limitCloseEc);
+            continue;
+        }
+
         boost::system::error_code remoteEc;
         const auto remoteEndpoint = socket->remote_endpoint(remoteEc);
         const std::string remote =
@@ -274,7 +288,8 @@ Awaitable SyslogReader::RunTcp()
             m_clients.push_back(socket);
         }
 
-        LogDebug("Accepted syslog TCP client {} on {}", remote, ListenerId());
+        ++m_activeConnections;
+        LogDebug("Accepted syslog TCP client {} on {} ({} active)", remote, ListenerId(), m_activeConnections.load());
         m_enqueueTask(HandleTcpClient(socket, remote));
     }
 
@@ -318,7 +333,8 @@ Awaitable SyslogReader::HandleTcpClient(std::shared_ptr<tcp::socket> socket, std
     // NOLINTNEXTLINE(bugprone-unused-return-value)
     socket->close(closeEc);
 
-    LogDebug("Closed syslog TCP client {} on {}", remote, ListenerId());
+    --m_activeConnections;
+    LogDebug("Closed syslog TCP client {} on {} ({} active)", remote, ListenerId(), m_activeConnections.load());
 }
 
 void SyslogReader::ProcessMessage(std::string message) const

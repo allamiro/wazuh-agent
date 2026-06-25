@@ -7,6 +7,8 @@
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/ip/udp.hpp>
 
+#include <atomic>
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <list>
@@ -67,6 +69,7 @@ namespace logcollector
         /// @param protocol Listener transport protocol (UDP or TCP)
         /// @param bindAddress Address the listener binds to
         /// @param port Port the listener binds to (1-65535)
+        /// @param maxConnections Maximum number of concurrent TCP client connections (DoS guard)
         SyslogReader(
             std::function<void(const std::string& location, const std::string& log, const std::string& collectorType)>
                 pushMessageFunc,
@@ -74,7 +77,8 @@ namespace logcollector
             std::function<void(boost::asio::awaitable<void>)> enqueueTaskFunc,
             SyslogProtocol protocol,
             std::string bindAddress,
-            std::uint16_t port);
+            std::uint16_t port,
+            std::size_t maxConnections = DEFAULT_MAX_TCP_CONNECTIONS);
 
         /// @copydoc IReader::Run
         Awaitable Run() override;
@@ -93,6 +97,9 @@ namespace logcollector
 
         /// @brief Maximum size in bytes of a single syslog message accepted by a listener
         static constexpr std::size_t MAX_MESSAGE_SIZE = 65536;
+
+        /// @brief Default cap on concurrent TCP client connections, to bound memory/file descriptors
+        static constexpr std::size_t DEFAULT_MAX_TCP_CONNECTIONS = 1024;
 
     private:
         /// @brief Runs the UDP listener loop
@@ -121,6 +128,12 @@ namespace logcollector
 
         /// @brief Bind port
         std::uint16_t m_port;
+
+        /// @brief Maximum number of concurrent TCP client connections
+        std::size_t m_maxConnections;
+
+        /// @brief Current number of active TCP client connections (DoS guard counter)
+        std::atomic<std::size_t> m_activeConnections {0};
 
         /// @brief Collector type reported to the Logcollector pipeline
         const std::string m_collectorType = REMOTE_SYSLOG_READER_TYPE;
