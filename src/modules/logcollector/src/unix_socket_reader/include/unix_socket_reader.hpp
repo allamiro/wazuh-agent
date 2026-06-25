@@ -98,6 +98,12 @@ namespace logcollector
         /// @brief Removes the socket file at m_path if it exists and is a socket
         void RemoveSocketFile() const;
 
+        /// @brief Restricts the socket file permissions to owner+group read/write (0660)
+        ///
+        /// Prevents arbitrary local users from writing to the socket (log injection),
+        /// which the default umask could otherwise allow.
+        void SetSocketPermissions() const;
+
         /// @brief Enqueue task function
         std::function<void(boost::asio::awaitable<void>)> m_enqueueTask;
 

@@ -144,6 +144,42 @@ TEST(UnixSocketReader, ListenerIdFormat)
     EXPECT_EQ(reader->ListenerId(), "unix_stream:/var/run/test.sock");
 }
 
+TEST(UnixSocketReader, SocketFilePermissionsAreRestricted)
+{
+    const auto path = TempSocketPath("perms");
+    RemoveIfExists(path);
+    MessageSink sink;
+    boost::asio::io_context io;
+    auto reader = MakeReader(io, sink, UnixSocketType::Stream, path);
+
+    boost::asio::co_spawn(io, reader->Run(), boost::asio::detached);
+    std::thread ioThread([&io]() { io.run(); });
+
+    // Wait until the socket file exists and its permissions have been restricted.
+    std::filesystem::perms perms = std::filesystem::perms::unknown;
+    for (int attempt = 0; attempt < MAX_ATTEMPTS; ++attempt)
+    {
+        std::error_code ec;
+        if (std::filesystem::exists(path, ec))
+        {
+            perms = std::filesystem::status(path, ec).permissions();
+            if ((perms & std::filesystem::perms::others_all) == std::filesystem::perms::none)
+            {
+                break;
+            }
+        }
+        std::this_thread::sleep_for(POLL_INTERVAL);
+    }
+
+    reader->Stop();
+    ioThread.join();
+
+    // No access for "others", owner read/write present (0660).
+    EXPECT_EQ(perms & std::filesystem::perms::others_all, std::filesystem::perms::none);
+    EXPECT_NE(perms & std::filesystem::perms::owner_read, std::filesystem::perms::none);
+    EXPECT_NE(perms & std::filesystem::perms::owner_write, std::filesystem::perms::none);
+}
+
 TEST(UnixSocketReader, StreamReceivesMessage)
 {
     const auto path = TempSocketPath("stream");

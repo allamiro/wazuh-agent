@@ -61,6 +61,22 @@ void UnixSocketReader::RemoveSocketFile() const
     }
 }
 
+void UnixSocketReader::SetSocketPermissions() const
+{
+    namespace fs = std::filesystem;
+
+    std::error_code fsEc;
+    // 0660: owner and group read/write only. Keeps arbitrary local users from
+    // writing to the socket (which would let them inject agent-attributed logs).
+    const auto perms = fs::perms::owner_read | fs::perms::owner_write | fs::perms::group_read | fs::perms::group_write;
+    fs::permissions(m_path, perms, fs::perm_options::replace, fsEc);
+
+    if (fsEc)
+    {
+        LogWarn("Could not set permissions on unix socket {}: {}", m_path, fsEc.message());
+    }
+}
+
 Awaitable UnixSocketReader::Run()
 {
     const auto executor = co_await boost::asio::this_coro::executor;
@@ -156,6 +172,8 @@ Awaitable UnixSocketReader::RunStream()
         co_return;
     }
 
+    SetSocketPermissions();
+
     {
         const std::lock_guard<std::mutex> lock(m_socketMutex);
         m_acceptor = acceptor;
@@ -224,6 +242,8 @@ Awaitable UnixSocketReader::RunDatagram()
         LogError("Failed to start agent-side unix_dgram listener on {}: {}", m_path, ec.message());
         co_return;
     }
+
+    SetSocketPermissions();
 
     {
         const std::lock_guard<std::mutex> lock(m_socketMutex);
