@@ -24,10 +24,9 @@ const std::string REMOTE_SYSLOG_READER_TYPE = "remote-syslog";
 // This reader covers the UDP/TCP IP-socket ingress only. The following remain
 // to be implemented as follow-ups and are referenced here for convenience:
 //
-//   1. UNIX domain socket listeners (unix_stream / unix_dgram / unix_seq),
-//      using boost::asio::local::stream_protocol / datagram_protocol. See the
-//      manager-side Fluentd forwarder and agent instance_communicator for the
-//      existing local-socket pattern.
+//   1. UNIX domain socket listeners: unix_stream / unix_dgram are implemented in
+//      UnixSocketReader (src/unix_socket_reader). SOCK_SEQPACKET (unix_seq) is
+//      still pending.
 //   2. Named pipe / FIFO ingress (Linux mkfifo; Windows named pipes use a
 //      different API). Equivalent to the legacy "syslog-pipe" log format.
 //   3. TLS for the TCP listener (boost::asio::ssl::stream), with cert/key/CA

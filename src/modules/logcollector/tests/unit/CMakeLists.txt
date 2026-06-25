@@ -5,13 +5,16 @@ endif()
 
 file(GLOB LOGCOLLECTOR_TEST_SOURCES *_test.cpp)
 file(GLOB SYSLOG_TEST_SOURCES syslog_reader/*_test.cpp)
+# UNIX domain socket reader tests are POSIX-only
+file(GLOB UNIXSOCK_TEST_SOURCES unix_socket_reader/*_test.cpp)
 file(GLOB UNIX_TEST_SOURCES journald_reader/*.cpp file_reader/*_unix_test.cpp)
 file(GLOB MACOS_TEST_SOURCES macos_reader/*.cpp file_reader/*_unix_test.cpp)
 file(GLOB WIN_TEST_SOURCES file_reader/*_win_test.cpp)
 
 add_executable(
     logcollector_unit_tests
-    ${LOGCOLLECTOR_TEST_SOURCES} ${SYSLOG_TEST_SOURCES} $<$<PLATFORM_ID:Linux>:${UNIX_TEST_SOURCES}>
+    ${LOGCOLLECTOR_TEST_SOURCES} ${SYSLOG_TEST_SOURCES}
+    $<$<NOT:$<PLATFORM_ID:Windows>>:${UNIXSOCK_TEST_SOURCES}> $<$<PLATFORM_ID:Linux>:${UNIX_TEST_SOURCES}>
     $<$<PLATFORM_ID:Darwin>:${MACOS_TEST_SOURCES}> $<$<PLATFORM_ID:Windows>:${WIN_TEST_SOURCES}>)
 configure_target(logcollector_unit_tests)
 
@@ -21,6 +24,7 @@ target_include_directories(
             ${CMAKE_CURRENT_SOURCE_DIR}/../../src
             ${CMAKE_CURRENT_SOURCE_DIR}/../../src/file_reader/include
             ${CMAKE_CURRENT_SOURCE_DIR}/../../src/syslog_reader/include
+            $<$<NOT:$<PLATFORM_ID:Windows>>:${CMAKE_CURRENT_SOURCE_DIR}/../../src/unix_socket_reader/include>
             $<$<PLATFORM_ID:Linux>:${CMAKE_CURRENT_SOURCE_DIR}/../../src/journald_reader/include>
             $<$<PLATFORM_ID:Linux>:${SYSTEMD_INCLUDE_DIRS}>
             $<$<PLATFORM_ID:Windows>:${CMAKE_CURRENT_SOURCE_DIR}/../../src/winevt_reader/include>

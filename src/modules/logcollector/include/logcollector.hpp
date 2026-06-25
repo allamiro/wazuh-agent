@@ -90,6 +90,16 @@ namespace logcollector
         /// @param configurationParser Configuration parser
         void SetupSyslogReaders(const std::shared_ptr<const configuration::ConfigurationParser> configurationParser);
 
+        /// @brief Sets up the agent-side UNIX domain socket listeners (stream/datagram)
+        ///
+        /// Reads every UNIX socket listener definition from the configuration, validates
+        /// it and creates one reader per valid definition. Invalid or duplicate definitions
+        /// are reported and skipped. On platforms without UNIX domain socket support this
+        /// is a no-op.
+        ///
+        /// @param configurationParser Configuration parser
+        void SetupUnixSocketReaders(const std::shared_ptr<const configuration::ConfigurationParser> configurationParser);
+
         /// @brief Clean all readers
         void CleanAllReaders();
 
