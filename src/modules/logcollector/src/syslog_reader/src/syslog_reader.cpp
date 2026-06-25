@@ -32,12 +32,14 @@ SyslogReader::SyslogReader(
     std::function<void(boost::asio::awaitable<void>)> enqueueTaskFunc,
     SyslogProtocol protocol,
     std::string bindAddress,
-    std::uint16_t port)
+    std::uint16_t port,
+    std::vector<std::string> allowedIps)
     : IReader(std::move(pushMessageFunc), std::move(waitFunc))
     , m_enqueueTask(std::move(enqueueTaskFunc))
     , m_protocol(protocol)
     , m_bindAddress(std::move(bindAddress))
     , m_port(port)
+    , m_allowedIps(std::move(allowedIps))
 {
 }
 
@@ -187,8 +189,7 @@ Awaitable SyslogReader::RunUdp()
             continue;
         }
 
-        LogTrace("Received syslog UDP datagram from {} on {}", sender.address().to_string(), ListenerId());
-        ProcessMessage(std::string(buffer.data(), bytes));
+        ProcessDatagram(sender.address(), std::string(buffer.data(), bytes));
     }
 
     LogInfo("Stopped agent-side syslog UDP listener on {}:{}", m_bindAddress, m_port);
@@ -268,6 +269,15 @@ Awaitable SyslogReader::RunTcp()
             remoteEc ? std::string("unknown")
                      : remoteEndpoint.address().to_string() + ":" + std::to_string(remoteEndpoint.port());
 
+        // Reject sources outside the allow-list (fails closed if the peer address is unknown).
+        if (!IsTcpSourceAllowed(!remoteEc, remoteEndpoint.address()))
+        {
+            LogDebug("Rejected syslog TCP connection from disallowed source {} on {}", remote, ListenerId());
+            // NOLINTNEXTLINE(bugprone-unused-return-value)
+            socket->close(ec);
+            continue;
+        }
+
         {
             const std::lock_guard<std::mutex> lock(m_socketMutex);
             m_clients.remove_if([](const std::weak_ptr<tcp::socket>& client) { return client.expired(); });
@@ -319,6 +329,29 @@ Awaitable SyslogReader::HandleTcpClient(std::shared_ptr<tcp::socket> socket, std
     socket->close(closeEc);
 
     LogDebug("Closed syslog TCP client {} on {}", remote, ListenerId());
+}
+
+bool SyslogReader::IsTcpSourceAllowed(bool addressKnown, const boost::asio::ip::address& address) const
+{
+    if (m_allowedIps.empty())
+    {
+        return true;
+    }
+
+    // An allow-list is configured but the peer address is unknown: fail closed.
+    return addressKnown && IsAddressAllowed(m_allowedIps, address);
+}
+
+void SyslogReader::ProcessDatagram(const boost::asio::ip::address& source, std::string message) const
+{
+    if (!IsAddressAllowed(m_allowedIps, source))
+    {
+        LogDebug("Dropped syslog datagram from disallowed source {} on {}", source.to_string(), ListenerId());
+        return;
+    }
+
+    LogTrace("Received syslog UDP datagram from {} on {}", source.to_string(), ListenerId());
+    ProcessMessage(std::move(message));
 }
 
 void SyslogReader::ProcessMessage(std::string message) const

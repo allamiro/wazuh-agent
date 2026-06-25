@@ -84,6 +84,8 @@ void Logcollector::SetupSyslogReaders(
 
     constexpr int MIN_PORT = 1;
     constexpr int MAX_PORT = 65535;
+    constexpr int IPV4_MAX_PREFIX = 32;
+    constexpr int IPV6_MAX_PREFIX = 128;
 
     std::set<std::string> seenListeners;
 
@@ -151,6 +153,75 @@ void Logcollector::SetupSyslogReaders(
             continue;
         }
 
+        std::vector<std::string> allowedIps;
+        bool allowedIpsValid = true;
+        if (config["allowed_ips"])
+        {
+            if (!config["allowed_ips"].IsSequence())
+            {
+                LogError("Invalid agent-side syslog listener configuration: allowed_ips must be a list.");
+                continue;
+            }
+
+            try
+            {
+                allowedIps = config["allowed_ips"].as<std::vector<std::string>>();
+            }
+            catch (const std::exception&)
+            {
+                LogError("Invalid agent-side syslog listener configuration: invalid allowed_ips list.");
+                continue;
+            }
+
+            for (const auto& entry : allowedIps)
+            {
+                const auto slash = entry.find('/');
+                const auto addressPart = slash == std::string::npos ? entry : entry.substr(0, slash);
+
+                boost::system::error_code ipEc;
+                const auto parsed = boost::asio::ip::make_address(addressPart, ipEc);
+                if (ipEc)
+                {
+                    LogError("Invalid agent-side syslog listener configuration: invalid allowed_ips entry {}.", entry);
+                    allowedIpsValid = false;
+                    break;
+                }
+
+                if (slash != std::string::npos)
+                {
+                    const auto prefixPart = entry.substr(slash + 1);
+                    const int maxPrefix = parsed.is_v4() ? IPV4_MAX_PREFIX : IPV6_MAX_PREFIX;
+                    int prefix = -1;
+                    try
+                    {
+                        std::size_t pos = 0;
+                        prefix = std::stoi(prefixPart, &pos);
+                        if (pos != prefixPart.size())
+                        {
+                            prefix = -1;
+                        }
+                    }
+                    catch (const std::exception&)
+                    {
+                        prefix = -1;
+                    }
+
+                    if (prefix < 0 || prefix > maxPrefix)
+                    {
+                        LogError("Invalid agent-side syslog listener configuration: invalid allowed_ips entry {}.",
+                                 entry);
+                        allowedIpsValid = false;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (!allowedIpsValid)
+        {
+            continue;
+        }
+
         const auto listenerId =
             SyslogReader::ProtocolToString(protocol) + ":" + bindAddress + ":" + std::to_string(port);
 
@@ -168,7 +239,8 @@ void Logcollector::SetupSyslogReaders(
             [this](Awaitable task) { EnqueueTask(std::move(task)); },
             protocol,
             bindAddress,
-            static_cast<std::uint16_t>(port)));
+            static_cast<std::uint16_t>(port),
+            allowedIps));
     }
 }
 

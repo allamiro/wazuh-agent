@@ -233,3 +233,64 @@ TEST(SyslogConfig, ValidAndInvalidListenersAreHandledIndependently)
 
     EXPECT_EQ(CountSyslogReaders(CONFIG_RAW), 2);
 }
+
+TEST(SyslogConfig, ValidAllowedIpsParses)
+{
+    auto constexpr CONFIG_RAW = R"(
+    logcollector:
+      syslog:
+        - protocol: udp
+          bind_address: 0.0.0.0
+          port: 5514
+          allowed_ips:
+            - 10.0.0.0/8
+            - 192.168.1.5
+    )";
+
+    EXPECT_EQ(CountSyslogReaders(CONFIG_RAW), 1);
+}
+
+TEST(SyslogConfig, InvalidAllowedIpsEntryIsRejected)
+{
+    auto constexpr CONFIG_RAW = R"(
+    logcollector:
+      syslog:
+        - protocol: udp
+          bind_address: 0.0.0.0
+          port: 5514
+          allowed_ips:
+            - 10.0.0.0/8
+            - not-an-ip
+    )";
+
+    EXPECT_EQ(CountSyslogReaders(CONFIG_RAW), 0);
+}
+
+TEST(SyslogConfig, AllowedIpsNotAListIsRejected)
+{
+    auto constexpr CONFIG_RAW = R"(
+    logcollector:
+      syslog:
+        - protocol: udp
+          bind_address: 0.0.0.0
+          port: 5514
+          allowed_ips: 10.0.0.0/8
+    )";
+
+    EXPECT_EQ(CountSyslogReaders(CONFIG_RAW), 0);
+}
+
+TEST(SyslogConfig, InvalidCidrPrefixIsRejected)
+{
+    auto constexpr CONFIG_RAW = R"(
+    logcollector:
+      syslog:
+        - protocol: udp
+          bind_address: 0.0.0.0
+          port: 5514
+          allowed_ips:
+            - 10.0.0.0/99
+    )";
+
+    EXPECT_EQ(CountSyslogReaders(CONFIG_RAW), 0);
+}

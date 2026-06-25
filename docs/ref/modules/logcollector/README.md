@@ -130,17 +130,20 @@ as its provider:
 |     ✔️     | syslog.protocol     | Listener transport protocol: `udp` or `tcp`                             |           |
 |     ✔️     | syslog.port         | Listener port (1-65535)                                                  |           |
 |           | syslog.bind_address | Address the listener binds to                                           | 127.0.0.1 |
+|           | syslog.allowed_ips  | List of allowed source IPs/CIDRs (e.g. `10.0.0.0/16`, `192.168.1.5`); empty allows any | (any) |
+
+Messages from sources outside `allowed_ips` are dropped (UDP datagrams) or refused
+(TCP connections). This complements, but does not replace, host firewall rules.
 
 A listener definition is rejected (and the listener is not started) when the
 protocol is not `udp`/`tcp`, the port is missing or out of range, the bind address
-is malformed, or another listener already uses the same protocol, bind address and
-port combination.
+is malformed, an `allowed_ips` entry is not a valid IP/CIDR, or another listener
+already uses the same protocol, bind address and port combination.
 
 > **Note:** For high-volume Syslog ingestion, TLS Syslog, disk-assisted queues,
 > advanced filtering, transformations, routing, or complex parsing pipelines, use
 > rsyslog, syslog-ng, Logstash, or the Wazuh manager remote Syslog input as
-> appropriate. Source IP filtering for the agent-side listener should be handled
-> with host firewall rules.
+> appropriate.
 
 #### Limitations and future work
 
@@ -155,7 +158,6 @@ intentionally **not** included yet and are tracked as future work:
 | TLS Syslog (TCP) | The TCP listener is plaintext; use rsyslog/syslog-ng for TLS. |
 | TCP octet-counting framing (RFC 6587) | Only newline-delimited ("non-transparent") framing is parsed. Octet-counted messages (`<len> <msg>`) are not auto-detected. |
 | Hostname `bind_address` | Only numeric IP literals (IPv4/IPv6) are accepted; DNS names are rejected. |
-| `allowed-ips` source filtering | Restrict senders with host firewall rules until implemented. |
 
 ### Windows Collector
 

@@ -7,6 +7,8 @@
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/ip/udp.hpp>
 
+#include <boost/asio/ip/address.hpp>
+
 #include <cstdint>
 #include <functional>
 #include <list>
@@ -14,6 +16,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <vector>
 
 /// @brief Collector type reported for messages received by an agent-side syslog listener
 const std::string REMOTE_SYSLOG_READER_TYPE = "remote-syslog";
@@ -36,7 +39,6 @@ const std::string REMOTE_SYSLOG_READER_TYPE = "remote-syslog";
 //      ("non-transparent") framing is parsed; detect a leading "<digits> " to
 //      support octet-counted messages.
 //   5. Hostname bind_address resolution (currently numeric IP literals only).
-//   6. allowed-ips source filtering (currently rely on host firewall rules).
 // ----------------------------------------------------------------------------
 
 namespace logcollector
@@ -67,6 +69,7 @@ namespace logcollector
         /// @param protocol Listener transport protocol (UDP or TCP)
         /// @param bindAddress Address the listener binds to
         /// @param port Port the listener binds to (1-65535)
+        /// @param allowedIps Optional list of allowed source IPs/CIDRs; empty means allow any source
         SyslogReader(
             std::function<void(const std::string& location, const std::string& log, const std::string& collectorType)>
                 pushMessageFunc,
@@ -74,7 +77,8 @@ namespace logcollector
             std::function<void(boost::asio::awaitable<void>)> enqueueTaskFunc,
             SyslogProtocol protocol,
             std::string bindAddress,
-            std::uint16_t port);
+            std::uint16_t port,
+            std::vector<std::string> allowedIps = {});
 
         /// @copydoc IReader::Run
         Awaitable Run() override;
@@ -91,6 +95,13 @@ namespace logcollector
         /// @return "udp" or "tcp"
         static std::string ProtocolToString(SyslogProtocol protocol);
 
+        /// @brief Checks whether a source address is permitted by an allow-list
+        /// @param allowedIps List of allowed IPs/CIDRs (e.g. "10.0.0.0/16", "192.168.1.5"); empty allows any
+        /// @param address Source address to check
+        /// @return True if the list is empty or the address matches an entry; false otherwise
+        static bool IsAddressAllowed(const std::vector<std::string>& allowedIps,
+                                     const boost::asio::ip::address& address);
+
         /// @brief Maximum size in bytes of a single syslog message accepted by a listener
         static constexpr std::size_t MAX_MESSAGE_SIZE = 65536;
 
@@ -105,6 +116,17 @@ namespace logcollector
         /// @param socket Connected client socket
         /// @param remote Human-readable remote endpoint description
         Awaitable HandleTcpClient(std::shared_ptr<boost::asio::ip::tcp::socket> socket, std::string remote);
+
+        /// @brief Applies the source allow-list and forwards a received UDP datagram
+        /// @param source Source address of the datagram
+        /// @param message Raw datagram payload
+        void ProcessDatagram(const boost::asio::ip::address& source, std::string message) const;
+
+        /// @brief Decides whether an accepted TCP connection is permitted by the allow-list
+        /// @param addressKnown Whether the peer address could be determined
+        /// @param address Peer address (ignored when addressKnown is false)
+        /// @return True if allowed; when an allow-list is set and the address is unknown, denies (fail closed)
+        bool IsTcpSourceAllowed(bool addressKnown, const boost::asio::ip::address& address) const;
 
         /// @brief Normalizes and forwards a received message into the Logcollector path
         /// @param message Raw message received from the network
@@ -121,6 +143,9 @@ namespace logcollector
 
         /// @brief Bind port
         std::uint16_t m_port;
+
+        /// @brief Allowed source IPs/CIDRs; empty means accept from any source
+        std::vector<std::string> m_allowedIps;
 
         /// @brief Collector type reported to the Logcollector pipeline
         const std::string m_collectorType = REMOTE_SYSLOG_READER_TYPE;

@@ -74,7 +74,8 @@ namespace
     std::shared_ptr<SyslogReader> MakeReader(boost::asio::io_context& io,
                                              MessageSink& sink,
                                              SyslogProtocol protocol,
-                                             unsigned short port)
+                                             unsigned short port,
+                                             std::vector<std::string> allowedIps = {})
     {
         auto push = [&sink](const std::string& location, const std::string& log, const std::string& collectorType)
         { sink.Push(location, log, collectorType); };
@@ -85,8 +86,13 @@ namespace
         auto enqueue = [&io](boost::asio::awaitable<void> task)
         { boost::asio::co_spawn(io, std::move(task), boost::asio::detached); };
 
-        return std::make_shared<SyslogReader>(
-            push, wait, enqueue, protocol, std::string(LOOPBACK), static_cast<std::uint16_t>(port));
+        return std::make_shared<SyslogReader>(push,
+                                              wait,
+                                              enqueue,
+                                              protocol,
+                                              std::string(LOOPBACK),
+                                              static_cast<std::uint16_t>(port),
+                                              std::move(allowedIps));
     }
 
     void WaitForCount(const MessageSink& sink, std::size_t expected)
@@ -322,4 +328,76 @@ TEST(SyslogReader, UdpBindFailsWhenPortInUse)
     occupier.close();
 
     EXPECT_EQ(sink.Count(), 0u);
+}
+
+TEST(SyslogReader, IsAddressAllowed)
+{
+    using boost::asio::ip::make_address;
+
+    // Empty allow-list permits any source.
+    EXPECT_TRUE(SyslogReader::IsAddressAllowed({}, make_address("127.0.0.1")));
+
+    // Exact host match.
+    EXPECT_TRUE(SyslogReader::IsAddressAllowed({"10.0.0.5"}, make_address("10.0.0.5")));
+    EXPECT_FALSE(SyslogReader::IsAddressAllowed({"10.0.0.5"}, make_address("10.0.0.6")));
+
+    // CIDR match / non-match.
+    EXPECT_TRUE(SyslogReader::IsAddressAllowed({"10.10.0.0/16"}, make_address("10.10.5.7")));
+    EXPECT_FALSE(SyslogReader::IsAddressAllowed({"10.10.0.0/16"}, make_address("10.20.5.7")));
+
+    // Multiple entries: match any.
+    EXPECT_TRUE(SyslogReader::IsAddressAllowed({"192.168.1.0/24", "10.0.0.0/8"}, make_address("10.1.2.3")));
+
+    // IPv6 host and CIDR.
+    EXPECT_TRUE(SyslogReader::IsAddressAllowed({"::1"}, make_address("::1")));
+    EXPECT_TRUE(SyslogReader::IsAddressAllowed({"fe80::/10"}, make_address("fe80::1")));
+    EXPECT_FALSE(SyslogReader::IsAddressAllowed({"fe80::/10"}, make_address("2001:db8::1")));
+
+    // Address-family mismatch never matches.
+    EXPECT_FALSE(SyslogReader::IsAddressAllowed({"10.0.0.0/8"}, make_address("::1")));
+}
+
+TEST(SyslogReader, UdpRejectsDisallowedSource)
+{
+    const auto port = GetFreeUdpPort();
+    MessageSink sink;
+    boost::asio::io_context io;
+    // Allow only 10.0.0.0/8: the loopback test client must be rejected.
+    auto reader = MakeReader(io, sink, SyslogProtocol::Udp, port, {"10.0.0.0/8"});
+
+    boost::asio::co_spawn(io, reader->Run(), boost::asio::detached);
+    std::thread ioThread([&io]() { io.run(); });
+
+    for (int attempt = 0; attempt < EMPTY_DATAGRAM_ATTEMPTS; ++attempt)
+    {
+        SendUdp(port, "<13>blocked source message\n");
+        std::this_thread::sleep_for(POLL_INTERVAL);
+    }
+
+    reader->Stop();
+    ioThread.join();
+
+    EXPECT_EQ(sink.Count(), 0u);
+}
+
+TEST(SyslogReader, UdpAcceptsAllowedSource)
+{
+    const auto port = GetFreeUdpPort();
+    MessageSink sink;
+    boost::asio::io_context io;
+    auto reader = MakeReader(io, sink, SyslogProtocol::Udp, port, {"127.0.0.0/8"});
+
+    boost::asio::co_spawn(io, reader->Run(), boost::asio::detached);
+    std::thread ioThread([&io]() { io.run(); });
+
+    for (int attempt = 0; attempt < MAX_ATTEMPTS && sink.Count() == 0; ++attempt)
+    {
+        SendUdp(port, "<13>allowed source message\n");
+        std::this_thread::sleep_for(POLL_INTERVAL);
+    }
+
+    reader->Stop();
+    ioThread.join();
+
+    EXPECT_GE(sink.Count(), 1u);
 }
