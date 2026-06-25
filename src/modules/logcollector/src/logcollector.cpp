@@ -260,7 +260,15 @@ void Logcollector::PushMessage(const std::string& location, const std::string& l
     data["event"]["created"] = Utils::getCurrentISO8601();
 
     auto message = Message(MessageType::STATELESS, data, m_moduleName, collectorType, metadata.dump());
-    m_pushMessage(message);
+
+    // The push function returns the number of messages stored; 0 means the agent
+    // queue was full and the message was dropped. Surface that at debug level so
+    // operators can see drops under sustained flooding (e.g. high-rate syslog).
+    if (m_pushMessage(message) == 0)
+    {
+        LogDebug("Message dropped (agent queue full) for '{}' from collector '{}'.", location, collectorType);
+        return;
+    }
 
     LogTrace("Message pushed: '{}':'{}'", location, log);
 }
