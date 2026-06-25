@@ -15,6 +15,9 @@ using boost::asio::ip::udp;
 
 namespace
 {
+    /// @brief Backoff applied after a persistent socket error to avoid a busy loop (e.g. EMFILE)
+    constexpr auto SOCKET_ERROR_BACKOFF = std::chrono::milliseconds(100);
+
     /// @brief Removes a trailing carriage return / line feed sequence from a message
     void TrimLineEnding(std::string& message)
     {
@@ -184,6 +187,8 @@ Awaitable SyslogReader::RunUdp()
             }
 
             LogDebug("Syslog UDP listener {} receive error: {}", ListenerId(), ec.message());
+            // Back off to avoid a busy loop if the socket stays in a persistent error state.
+            co_await m_wait(SOCKET_ERROR_BACKOFF);
             continue;
         }
 
@@ -259,6 +264,8 @@ Awaitable SyslogReader::RunTcp()
             }
 
             LogDebug("Syslog TCP listener {} accept error: {}", ListenerId(), ec.message());
+            // Back off to avoid a busy loop on persistent accept failures (e.g. EMFILE/file-descriptor exhaustion).
+            co_await m_wait(SOCKET_ERROR_BACKOFF);
             continue;
         }
 
