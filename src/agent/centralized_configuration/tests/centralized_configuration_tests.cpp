@@ -175,6 +175,204 @@ TEST(CentralizedConfiguration, ExecuteCommandReturnsFailureOnParseParameters)
     io_context.run();
 }
 
+TEST(CentralizedConfiguration, ExecuteCommandRejectsInvalidGroupNames)
+{
+    boost::asio::io_context io_context;
+
+    boost::asio::co_spawn(
+        io_context,
+        []() -> boost::asio::awaitable<void>
+        {
+            auto mockFileSystem = std::make_shared<MockFileSystemWrapper>();
+
+            EXPECT_CALL(*mockFileSystem, remove_all(_)).Times(0);
+            EXPECT_CALL(*mockFileSystem, create_directories(_)).Times(0);
+            EXPECT_CALL(*mockFileSystem, rename(_, _)).Times(0);
+
+            bool wasSetGroupIdFunctionCalled = false;
+            bool wasDownloadGroupFilesFunctionCalled = false;
+
+            CentralizedConfiguration centralizedConfiguration(
+                // NOLINTBEGIN(cppcoreguidelines-avoid-capturing-lambda-coroutines)
+                [&wasSetGroupIdFunctionCalled](const std::vector<std::string>&)
+                {
+                    wasSetGroupIdFunctionCalled = true;
+                    return true;
+                },
+                []() { return std::vector<std::string> {}; },
+                [&wasDownloadGroupFilesFunctionCalled](std::string, std::string) -> boost::asio::awaitable<bool>
+                {
+                    wasDownloadGroupFilesFunctionCalled = true;
+                    co_return true;
+                },
+                // NOLINTEND(cppcoreguidelines-avoid-capturing-lambda-coroutines)
+                [](const std::filesystem::path&) { return true; },
+                []() {},
+                std::move(mockFileSystem));
+
+            const std::vector<nlohmann::json> invalidGroupCases = {
+                nlohmann::json::parse(R"({"groups":["../../etc/wazuh-agent"]})"),
+                nlohmann::json::parse(R"({"groups":["/etc/wazuh-agent"]})"),
+                nlohmann::json::parse(R"({"groups":["..\\windows"]})"),
+                nlohmann::json::parse(R"({"groups":["."]})"),
+                nlohmann::json::parse(R"({"groups":[".."]})"),
+                nlohmann::json::parse(R"({"groups":["group/../escape"]})"),
+                nlohmann::json::parse(R"({"groups":["C:escape"]})"),
+                nlohmann::json::parse(R"({"groups":["group name"]})"),
+                nlohmann::json::parse(R"({"groups":["grupo\u00f1"]})"),
+                nlohmann::json::parse(R"({"groups":["nul\u0000byte"]})"),
+                nlohmann::json::parse(R"({"groups":["line\nbreak"]})"),
+                nlohmann::json {
+                    {"groups", nlohmann::json::array({std::string(module_command::MAX_GROUP_ID_LENGTH + 1, 'g')})}},
+                nlohmann::json::parse(R"({"groups":["good", "bad/name"]})")};
+
+            for (const auto& invalidCase : invalidGroupCases)
+            {
+                co_await TestExecuteCommand(centralizedConfiguration,
+                                            "set-group",
+                                            invalidCase,
+                                            module_command::Status::FAILURE,
+                                            "CentralizedConfiguration group set failed, invalid group name received.");
+            }
+
+            EXPECT_FALSE(wasSetGroupIdFunctionCalled);
+            EXPECT_FALSE(wasDownloadGroupFilesFunctionCalled);
+        }(),
+        boost::asio::detached);
+
+    io_context.run();
+}
+
+TEST(CentralizedConfiguration, ExecuteCommandAcceptsManagerValidGroupNames)
+{
+    boost::asio::io_context io_context;
+
+    boost::asio::co_spawn(
+        io_context,
+        []() -> boost::asio::awaitable<void>
+        {
+            const std::vector<std::string> validGroupIds = {"linux.prod",
+                                                            ".hidden",
+                                                            "a..b",
+                                                            "web_servers-01",
+                                                            std::string(module_command::MAX_GROUP_ID_LENGTH, 'g')};
+            std::vector<std::string> savedGroupIds;
+
+            auto mockFileSystem = std::make_shared<MockFileSystemWrapper>();
+
+            EXPECT_CALL(*mockFileSystem, exists(_)).WillRepeatedly(Return(false));
+            EXPECT_CALL(*mockFileSystem, is_directory(_)).WillRepeatedly(Return(true));
+            EXPECT_CALL(*mockFileSystem, remove_all(_)).WillRepeatedly(Return(0));
+            EXPECT_CALL(*mockFileSystem, temp_directory_path())
+                .WillRepeatedly(Return(std::filesystem::temp_directory_path()));
+            EXPECT_CALL(*mockFileSystem, create_directories(_)).WillRepeatedly(Return(true));
+            EXPECT_CALL(*mockFileSystem, rename(_, _)).Times(static_cast<int>(validGroupIds.size()));
+
+            CentralizedConfiguration centralizedConfiguration(
+                [&savedGroupIds](const std::vector<std::string>& groupIds)
+                {
+                    savedGroupIds = groupIds;
+                    return true;
+                },
+                []() { return std::vector<std::string> {}; },
+                [](std::string, std::string) -> boost::asio::awaitable<bool> { co_return true; },
+                [](const std::filesystem::path&) { return true; },
+                []() {},
+                std::move(mockFileSystem));
+
+            nlohmann::json groupsList;
+            groupsList["groups"] = validGroupIds;
+
+            co_await TestExecuteCommand(centralizedConfiguration,
+                                        "set-group",
+                                        groupsList,
+                                        module_command::Status::SUCCESS,
+                                        "CentralizedConfiguration set-group done.");
+
+            EXPECT_EQ(savedGroupIds, validGroupIds);
+        }(),
+        boost::asio::detached);
+
+    io_context.run();
+}
+
+TEST(CentralizedConfiguration, ExecuteCommandRejectsInvalidStoredGroupNamesOnFetchConfig)
+{
+    boost::asio::io_context io_context;
+
+    boost::asio::co_spawn(
+        io_context,
+        []() -> boost::asio::awaitable<void>
+        {
+            auto mockFileSystem = std::make_shared<MockFileSystemWrapper>();
+
+            EXPECT_CALL(*mockFileSystem, create_directories(_)).Times(0);
+            EXPECT_CALL(*mockFileSystem, rename(_, _)).Times(0);
+
+            bool wasDownloadGroupFilesFunctionCalled = false;
+
+            CentralizedConfiguration centralizedConfiguration(
+                [](const std::vector<std::string>&) { return true; },
+                []() { return std::vector<std::string> {"group1", "../../etc/wazuh-agent"}; },
+                // NOLINTBEGIN(cppcoreguidelines-avoid-capturing-lambda-coroutines)
+                [&wasDownloadGroupFilesFunctionCalled](std::string, std::string) -> boost::asio::awaitable<bool>
+                {
+                    wasDownloadGroupFilesFunctionCalled = true;
+                    co_return true;
+                },
+                // NOLINTEND(cppcoreguidelines-avoid-capturing-lambda-coroutines)
+                [](const std::filesystem::path&) { return true; },
+                []() {},
+                std::move(mockFileSystem));
+
+            co_await TestExecuteCommand(centralizedConfiguration,
+                                        "fetch-config",
+                                        {},
+                                        module_command::Status::FAILURE,
+                                        "CentralizedConfiguration fetch-config failed, invalid stored group name.");
+
+            EXPECT_FALSE(wasDownloadGroupFilesFunctionCalled);
+        }(),
+        boost::asio::detached);
+
+    io_context.run();
+}
+
+TEST(CentralizedConfiguration, ExecuteCommandRemovesInvalidDownloadedFile)
+{
+    boost::asio::io_context io_context;
+
+    boost::asio::co_spawn(
+        io_context,
+        []() -> boost::asio::awaitable<void>
+        {
+            auto mockFileSystem = std::make_shared<MockFileSystemWrapper>();
+
+            EXPECT_CALL(*mockFileSystem, temp_directory_path())
+                .WillRepeatedly(Return(std::filesystem::temp_directory_path() / ""));
+            EXPECT_CALL(*mockFileSystem, exists(_)).WillRepeatedly(Return(true));
+            EXPECT_CALL(*mockFileSystem, remove(_)).WillOnce(Return(true));
+            EXPECT_CALL(*mockFileSystem, rename(_, _)).Times(0);
+
+            CentralizedConfiguration centralizedConfiguration(
+                [](const std::vector<std::string>&) { return true; },
+                []() { return std::vector<std::string> {"group1"}; },
+                [](std::string, std::string) -> boost::asio::awaitable<bool> { co_return true; },
+                [](const std::filesystem::path&) { return false; },
+                []() {},
+                std::move(mockFileSystem));
+
+            co_await TestExecuteCommand(centralizedConfiguration,
+                                        "fetch-config",
+                                        {},
+                                        module_command::Status::FAILURE,
+                                        "CentralizedConfiguration validate file failed, invalid file received.");
+        }(),
+        boost::asio::detached);
+
+    io_context.run();
+}
+
 TEST(CentralizedConfiguration, ExecuteCommandHandlesRecognizedCommands)
 {
     boost::asio::io_context io_context;

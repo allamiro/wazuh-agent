@@ -8,6 +8,8 @@ This section describes the defined commands that the agent can execute and the s
 
 This centralized configuration command is responsible for assigning the groups to which the agent belongs. Each command received must include the complete list of groups in its parameters, including any previously assigned groups, if any, as well as the new groups. If this list of groups is empty, all previously assigned groups will be removed.
 
+Group names may only contain letters, digits, `.`, `_` and `-`, can be at most 255 characters long, and cannot be `.` or `..`. If any group in the list is invalid, the agent rejects the whole command and keeps its current groups and shared configuration.
+
 The execution of this command triggers the download of the configuration files for each group and subsequently initiates a reload of the configuration and modules to apply the new settings.
 
 ```json

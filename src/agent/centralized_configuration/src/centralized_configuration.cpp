@@ -6,6 +6,7 @@
 #include <filesystem_wrapper.hpp>
 #include <logger.hpp>
 
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <random>
@@ -25,6 +26,23 @@ namespace
         auto timestamp = now.time_since_epoch().count();
 
         return std::to_string(timestamp) + "_" + std::to_string(random);
+    }
+
+    bool AreValidGroupIds(const std::vector<std::string>& groupIds)
+    {
+        const auto invalidGroupId = std::ranges::find_if_not(
+            groupIds, [](const std::string& groupId) { return module_command::IsValidGroupId(groupId); });
+
+        if (invalidGroupId != groupIds.end())
+        {
+            LogWarn("Invalid group name: {}. Group names may only contain letters, digits, '.', '_' or '-', "
+                    "be at most {} characters long, and cannot be '.' or '..'.",
+                    module_command::FormatGroupIdForLog(*invalidGroupId),
+                    module_command::MAX_GROUP_ID_LENGTH);
+            return false;
+        }
+
+        return true;
     }
 } // namespace
 
@@ -72,6 +90,13 @@ namespace centralized_configuration
                         "CentralizedConfiguration group set failed, a group name can not be an empty string."};
                 }
 
+                if (!AreValidGroupIds(groupIds))
+                {
+                    co_return module_command::CommandExecutionResult {
+                        module_command::Status::FAILURE,
+                        "CentralizedConfiguration group set failed, invalid group name received."};
+                }
+
                 if (!m_setGroupIdFunction(groupIds))
                 {
                     LogWarn("Group set failed, error saving group information");
@@ -103,6 +128,12 @@ namespace centralized_configuration
             else if (command == module_command::FETCH_CONFIG_COMMAND)
             {
                 groupIds = m_getGroupIdFunction();
+                if (!AreValidGroupIds(groupIds))
+                {
+                    co_return module_command::CommandExecutionResult {
+                        module_command::Status::FAILURE,
+                        "CentralizedConfiguration fetch-config failed, invalid stored group name."};
+                }
             }
             else
             {
@@ -135,8 +166,10 @@ namespace centralized_configuration
 
                     try
                     {
+                        // temp_directory_path() may end with a separator (TMPDIR on macOS, GetTempPath on Windows)
                         if (m_fileSystemWrapper->exists(tmpGroupFile) &&
-                            tmpGroupFile.parent_path() == m_fileSystemWrapper->temp_directory_path())
+                            tmpGroupFile.parent_path().lexically_normal() ==
+                                (m_fileSystemWrapper->temp_directory_path() / "").parent_path().lexically_normal())
                         {
                             if (!m_fileSystemWrapper->remove(tmpGroupFile))
                             {
@@ -158,6 +191,16 @@ namespace centralized_configuration
 
                 const std::filesystem::path destGroupFile = std::filesystem::path(config::DEFAULT_SHARED_CONFIG_PATH) /
                                                             (groupId + config::DEFAULT_SHARED_FILE_EXTENSION);
+
+                if (destGroupFile.lexically_normal().parent_path() !=
+                    std::filesystem::path(config::DEFAULT_SHARED_CONFIG_PATH).lexically_normal())
+                {
+                    LogWarn("Resolved group file path is outside the shared configuration directory: {}",
+                            destGroupFile.string());
+                    co_return module_command::CommandExecutionResult {
+                        module_command::Status::FAILURE,
+                        "CentralizedConfiguration group set failed, invalid group destination path."};
+                }
 
                 try
                 {

@@ -310,6 +310,76 @@ TEST_F(CommandHandlerTest, CommandsProcessingTaskCheckCommandSetGroupArgNoArray)
     RunCommandsProcessingTask();
 }
 
+TEST_F(CommandHandlerTest, CommandsProcessingTaskCheckCommandSetGroupInvalidGroupName)
+{
+    module_command::CommandEntry testCommand;
+    nlohmann::json parameters;
+    parameters[module_command::GROUPS_ARG] = nlohmann::json::array({"group1", "../../etc/wazuh-agent"});
+    testCommand.Id = "command-id-1";
+    testCommand.Command = module_command::SET_GROUP_COMMAND;
+    testCommand.Parameters = parameters;
+
+    EXPECT_CALL(*m_mockCommandStore, GetCommandByStatus(_)).WillOnce(Return(std::nullopt));
+
+    EXPECT_CALL(*m_mockCommandFunctions, GetCommandFromQueue()).WillOnce(Return(testCommand));
+    EXPECT_CALL(*m_mockCommandFunctions, ReportCommandResult(_))
+        .WillOnce(
+            [](module_command::CommandEntry& cmd)
+            {
+                EXPECT_EQ(cmd.ExecutionResult.ErrorCode, module_command::Status::FAILURE);
+                EXPECT_EQ(cmd.ExecutionResult.Message, "Command is not valid");
+            });
+    EXPECT_CALL(*m_mockCommandFunctions, PopCommandFromQueue()).Times(1);
+    EXPECT_CALL(*m_mockCommandStore, StoreCommand(_)).Times(0);
+    EXPECT_CALL(*m_mockCommandFunctions, DispatchCommand(_)).Times(0);
+
+    RunCommandsProcessingTask();
+}
+
+TEST_F(CommandHandlerTest, CommandsProcessingTaskCheckCommandSetGroupNonStringGroupName)
+{
+    module_command::CommandEntry testCommand;
+    nlohmann::json parameters;
+    parameters[module_command::GROUPS_ARG] = nlohmann::json::array({"group1", true});
+    testCommand.Id = "command-id-1";
+    testCommand.Command = module_command::SET_GROUP_COMMAND;
+    testCommand.Parameters = parameters;
+
+    EXPECT_CALL(*m_mockCommandStore, GetCommandByStatus(_)).WillOnce(Return(std::nullopt));
+
+    EXPECT_CALL(*m_mockCommandFunctions, GetCommandFromQueue()).WillOnce(Return(testCommand));
+    EXPECT_CALL(*m_mockCommandFunctions, ReportCommandResult(_)).Times(1);
+    EXPECT_CALL(*m_mockCommandFunctions, PopCommandFromQueue()).Times(1);
+    EXPECT_CALL(*m_mockCommandStore, StoreCommand(_)).Times(0);
+    EXPECT_CALL(*m_mockCommandFunctions, DispatchCommand(_)).Times(0);
+
+    RunCommandsProcessingTask();
+}
+
+TEST_F(CommandHandlerTest, CommandsProcessingTaskProcessesCommandSetGroupWithDottedNamesSuccessfully)
+{
+    module_command::CommandEntry testCommand;
+    nlohmann::json parameters;
+    parameters[module_command::GROUPS_ARG] = nlohmann::json::array({"linux.prod", "web_servers-01"});
+    testCommand.Id = "command-id-1";
+    testCommand.Command = module_command::SET_GROUP_COMMAND;
+    testCommand.Parameters = parameters;
+
+    EXPECT_CALL(*m_mockCommandStore, GetCommandByStatus(_)).WillOnce(Return(std::nullopt));
+
+    EXPECT_CALL(*m_mockCommandFunctions, GetCommandFromQueue()).WillOnce(Return(testCommand));
+
+    EXPECT_CALL(*m_mockCommandStore, StoreCommand(_)).WillOnce(Return(true));
+
+    EXPECT_CALL(*m_mockCommandFunctions, PopCommandFromQueue()).Times(1);
+
+    ExpectDispatchCommandSuccess();
+
+    EXPECT_CALL(*m_mockCommandStore, UpdateCommand(_)).WillOnce(Return(true));
+
+    RunCommandsProcessingTask();
+}
+
 TEST_F(CommandHandlerTest, CommandsProcessingTaskStoreCommandFail)
 {
     module_command::CommandEntry testCommand;

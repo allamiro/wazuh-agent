@@ -27,6 +27,33 @@ namespace
              module_command::CENTRALIZED_CONFIGURATION_MODULE, module_command::CommandExecutionMode::SYNC, {}}},
         {module_command::RESTART_COMMAND,
          CommandDetails {module_command::RESTART_HANDLER_MODULE, module_command::CommandExecutionMode::SYNC, {}}}};
+
+    bool AreValidGroupIds(const nlohmann::json& groups)
+    {
+        const auto invalidGroup = std::find_if_not(
+            groups.begin(),
+            groups.end(),
+            [](const nlohmann::json& group)
+            { return group.is_string() && module_command::IsValidGroupId(group.get_ref<const std::string&>()); });
+
+        if (invalidGroup == groups.end())
+        {
+            return true;
+        }
+
+        if (invalidGroup->is_string())
+        {
+            LogError("The command {} has an invalid group name: {}.",
+                     module_command::SET_GROUP_COMMAND,
+                     module_command::FormatGroupIdForLog(invalidGroup->get_ref<const std::string&>()));
+        }
+        else
+        {
+            LogError("The command {} has a group name that is not a string.", module_command::SET_GROUP_COMMAND);
+        }
+
+        return false;
+    }
 } // namespace
 
 namespace command_handler
@@ -182,6 +209,12 @@ namespace command_handler
                     LogError("The command {} parameters are invalid or missing: {}.", cmd.Command, arg.first);
                     return false;
                 }
+            }
+
+            if (cmd.Command == module_command::SET_GROUP_COMMAND &&
+                !AreValidGroupIds(cmd.Parameters.at(module_command::GROUPS_ARG)))
+            {
+                return false;
             }
 
             for (auto it = cmd.Parameters.begin(); it != cmd.Parameters.end(); ++it)

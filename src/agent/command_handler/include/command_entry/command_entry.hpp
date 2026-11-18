@@ -2,7 +2,10 @@
 
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
+#include <cstddef>
 #include <string>
+#include <string_view>
 
 namespace module_command
 {
@@ -13,6 +16,39 @@ namespace module_command
 
     // Commands arguments
     const std::string GROUPS_ARG = "groups";
+
+    /// @brief Maximum length of a group name, matching the manager's MAX_GROUP_NAME
+    constexpr std::size_t MAX_GROUP_ID_LENGTH = 255;
+
+    /// @brief Checks whether a group name is safe to use in file paths and download URLs
+    /// @details Mirrors the manager API rule: letters, digits, '.', '_' and '-', excluding "." and "..".
+    /// @param groupId The group name to check
+    /// @return True if the group name is valid, false otherwise
+    inline bool IsValidGroupId(std::string_view groupId)
+    {
+        if (groupId.empty() || groupId.size() > MAX_GROUP_ID_LENGTH || groupId == "." || groupId == "..")
+        {
+            return false;
+        }
+
+        return std::ranges::all_of(groupId,
+                                   [](const char character)
+                                   {
+                                       return (character >= 'a' && character <= 'z') ||
+                                              (character >= 'A' && character <= 'Z') ||
+                                              (character >= '0' && character <= '9') || character == '.' ||
+                                              character == '_' || character == '-';
+                                   });
+    }
+
+    /// @brief Formats an untrusted group name for logging: truncated, quoted, with control characters escaped
+    /// @param groupId The group name to format
+    /// @return The formatted group name
+    inline std::string FormatGroupIdForLog(std::string_view groupId)
+    {
+        return nlohmann::json(std::string(groupId.substr(0, MAX_GROUP_ID_LENGTH)))
+            .dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
+    }
 
     // Modules
     const std::string CENTRALIZED_CONFIGURATION_MODULE = "CentralizedConfiguration";
